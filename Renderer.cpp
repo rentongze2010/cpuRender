@@ -1,43 +1,52 @@
 #include "Renderer.h"
-#include "Window.h"
-#include <cstring>
-#include <algorithm>
 
 Renderer::Renderer()
     : m_pixelData(nullptr), m_pixelBuffer(nullptr),
-    m_width(0), m_height(0), m_showBall(true),
-    m_mouseX(0), m_mouseY(0), m_mousePressed(false)
+    m_width(0), m_height(0)
 {
-    // 初始化小球
-    m_ball.x = 100.0f;
-    m_ball.y = 100.0f;
-    m_ball.vx = 200.0f; // 像素/秒
-    m_ball.vy = 150.0f;
-    m_ball.radius = 30.0f;
-    m_ball.color = 0xFFFFFFFF; // 白色
 }
 
 Renderer::~Renderer()
 {
     delete[] m_pixelBuffer;
+    // m_pixelData 通常是外部传入的指针，不由 Renderer 释放
 }
 
 void Renderer::SetPixelData(const uint32_t* pixels, int width, int height)
 {
     m_width = width;
     m_height = height;
+
+    // 重新分配缓冲区
     delete[] m_pixelBuffer;
     m_pixelBuffer = new Pixel[width * height];
     m_pixelData = (uint32_t*)pixels;
 
-    // 初始化背景
+    // 转换 RGBA 到 BGRA (Windows DIB 格式要求)
+    // 格式：0xAABBGGRR (小端序)
     for (int i = 0; i < width * height; i++)
     {
         uint32_t rgba = pixels[i];
-        m_pixelBuffer[i].r = (rgba >> 24) & 0xFF;
-        m_pixelBuffer[i].g = (rgba >> 16) & 0xFF;
-        m_pixelBuffer[i].b = (rgba >> 8) & 0xFF;
-        m_pixelBuffer[i].a = rgba & 0xFF;
+        m_pixelBuffer[i].a = (rgba >> 24) & 0xFF;
+        m_pixelBuffer[i].r = (rgba >> 16) & 0xFF;
+        m_pixelBuffer[i].g = (rgba >> 8) & 0xFF;
+        m_pixelBuffer[i].b = rgba & 0xFF;
+    }
+}
+
+void Renderer::ClearBuffer(void* buffer, int width, int height, uint32_t color)
+{
+    Pixel* pixels = (Pixel*)buffer;
+    Pixel fillPixel;
+    fillPixel.a = (color >> 24) & 0xFF;
+    fillPixel.r = (color >> 16) & 0xFF;
+    fillPixel.g = (color >> 8) & 0xFF;
+    fillPixel.b = color & 0xFF;
+
+    // 快速填充
+    for (int i = 0; i < width * height; i++)
+    {
+        pixels[i] = fillPixel;
     }
 }
 
@@ -49,30 +58,9 @@ void Renderer::UpdateCallback(void* userData, float deltaTime)
 
 void Renderer::UpdateLogic(float deltaTime)
 {
-    if (!m_showBall) return;
-
-    // 移动小球
-    m_ball.x += m_ball.vx * deltaTime;
-    m_ball.y += m_ball.vy * deltaTime;
-
-    // 边界碰撞检测
-    if (m_ball.x - m_ball.radius < 0) { m_ball.x = m_ball.radius; m_ball.vx *= -1; }
-    if (m_ball.x + m_ball.radius > m_width) { m_ball.x = m_width - m_ball.radius; m_ball.vx *= -1; }
-    if (m_ball.y - m_ball.radius < 0) { m_ball.y = m_ball.radius; m_ball.vy *= -1; }
-    if (m_ball.y + m_ball.radius > m_height) { m_ball.y = m_height - m_ball.radius; m_ball.vy *= -1; }
-
-    // 键盘控制 (WASD 加速)
-    // 注意：这里需要访问 Window 的按键状态，为了简化，我们在 Main 中传递 Window 指针或通过全局变量
-    // 这里演示通过外部全局 Window 指针访问 (实际项目中建议用依赖注入)
-    extern Window * g_pWindow;
-    if (g_pWindow)
-    {
-        float speed = 500.0f * deltaTime;
-        if (g_pWindow->IsKeyDown('W')) m_ball.y -= speed;
-        if (g_pWindow->IsKeyDown('S')) m_ball.y += speed;
-        if (g_pWindow->IsKeyDown('A')) m_ball.x -= speed;
-        if (g_pWindow->IsKeyDown('D')) m_ball.x += speed;
-    }
+    // 预留位置：在这里添加你的动画逻辑
+    // 例如：修改 m_pixelData 中的像素值实现动态效果
+    // 当前为空，仅显示静态图像
 }
 
 void Renderer::RenderCallback(void* userData, int width, int height, void* pixelBuffer)
@@ -80,71 +68,35 @@ void Renderer::RenderCallback(void* userData, int width, int height, void* pixel
     Renderer* p = (Renderer*)userData;
     if (!p) return;
 
-    // 1. 清空/绘制背景 (这里简单拷贝初始数据)
-    // 实际项目中应该每帧重绘背景
     Pixel* dest = (Pixel*)pixelBuffer;
-    memset(dest, 50, width * height * sizeof(Pixel)); // 深灰色背景
 
-    // 2. 绘制小球
-    p->DrawBall(pixelBuffer, width, height);
+    // 1. 清空屏幕 (深灰色背景)
+    p->ClearBuffer(dest, width, height, 0xff000000);
 
-    // 3. 绘制鼠标提示
-    if (p->m_mousePressed)
+    // 2. 绘制用户提供的图像 (如果尺寸匹配)
+    if (p->m_pixelBuffer && p->m_width > 0 && p->m_height > 0)
     {
-        // 简单在鼠标位置画个红点
-        int mx = p->m_mouseX;
-        int my = p->m_mouseY;
-        if (mx >= 0 && mx < width && my >= 0 && my < height)
-        {
-            Pixel* pPixel = &dest[my * width + mx];
-            pPixel->r = 255; pPixel->g = 0; pPixel->b = 0;
-        }
-    }
-}
+        int copyWidth = (width < p->m_width) ? width : p->m_width;
+        int copyHeight = (height < p->m_height) ? height : p->m_height;
 
-void Renderer::DrawBall(void* buffer, int width, int height)
-{
-    Pixel* pixels = (Pixel*)buffer;
-    int cx = (int)m_ball.x;
-    int cy = (int)m_ball.y;
-    int r = (int)m_ball.radius;
-
-    // 简单的圆形光栅化
-    for (int y = -r; y <= r; y++)
-    {
-        for (int x = -r; x <= r; x++)
+        // 将内部缓冲区拷贝到屏幕缓冲区
+        for (int y = 0; y < copyHeight; y++)
         {
-            if (x * x + y * y <= r * r)
-            {
-                int px = cx + x;
-                int py = cy + y;
-                if (px >= 0 && px < width && py >= 0 && py < height)
-                {
-                    Pixel* p = &pixels[py * width + px];
-                    p->r = 255; p->g = 255; p->b = 0; // 黄色球
-                    p->a = 255;
-                }
-            }
+            memcpy(dest + y * width, p->m_pixelBuffer + y * p->m_width, copyWidth * sizeof(Pixel));
         }
     }
 }
 
 void Renderer::KeyCallback(void* userData, int key, bool isPressed)
 {
-    Renderer* p = (Renderer*)userData;
-    if (key == 'B' && isPressed) p->m_showBall = !p->m_showBall; // 按 B 隐藏/显示球
+    // 预留位置：处理键盘事件
+    // 例如：按 ESC 退出，按空格暂停等
+    (void)userData; (void)key; (void)isPressed; // 避免未使用警告
 }
 
 void Renderer::MouseCallback(void* userData, int x, int y, int button)
 {
-    Renderer* p = (Renderer*)userData;
-    p->m_mouseX = x;
-    p->m_mouseY = y;
-    p->m_mousePressed = (button == 1);
-    if (p->m_mousePressed)
-    {
-        // 点击小球 teleport
-        p->m_ball.x = (float)x;
-        p->m_ball.y = (float)y;
-    }
+    // 预留位置：处理鼠标事件
+    // 例如：点击交互，画笔工具等
+    (void)userData; (void)x; (void)y; (void)button; // 避免未使用警告
 }

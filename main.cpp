@@ -14,7 +14,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     std::vector<uint32_t> pixelData(WIDTH * HEIGHT);
     for (int i = 0; i < WIDTH * HEIGHT; i++)
     {
-        pixelData[i] = 0xFF202020;
+        pixelData[i] = 0x000000FF;
     }
 
     // 2. ³õÊ¼»¯äÖÈ¾Æ÷
