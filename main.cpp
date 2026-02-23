@@ -3,48 +3,48 @@
 #include <vector>
 #include <cstdint>
 
-// 全局渲染器实例
+Window* g_pWindow = nullptr;
 Renderer g_renderer;
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
-    // ========== 1. 准备像素数据 (RGBA 格式) ==========
+    // 1. 准备初始像素数据
     const int WIDTH = 400;
     const int HEIGHT = 300;
-
     std::vector<uint32_t> pixelData(WIDTH * HEIGHT);
-
-    // 生成测试图案 (彩虹渐变)
-    for (int y = 0; y < HEIGHT; y++)
+    for (int i = 0; i < WIDTH * HEIGHT; i++)
     {
-        for (int x = 0; x < WIDTH; x++)
-        {
-            // RGBA 格式：0xAABBGGRR (小端序)
-            uint8_t r = (uint8_t)(255 * x / WIDTH);
-            uint8_t g = (uint8_t)(255 * y / HEIGHT);
-            uint8_t b = 128;
-            uint8_t a = 255;
-
-            // 打包成 32 位整数 (RGBA)
-            pixelData[y * WIDTH + x] = (a << 24) | (b << 16) | (g << 8) | r;
-        }
+        pixelData[i] = 0xFF202020;
     }
 
-    // ========== 2. 设置渲染器 ==========
+    // 2. 初始化渲染器
     g_renderer.SetPixelData(pixelData.data(), WIDTH, HEIGHT);
 
-    // ========== 3. 创建窗口 ==========
+    // 3. 创建窗口
     Window window;
-    if (!window.Create(L"C++ Win32 RGBA 渲染示例", 800, 600))
+    g_pWindow = &window;
+
+    if (!window.Create(L"CPU Render Engine v1.0", 800, 600))
     {
         MessageBox(NULL, L"窗口创建失败!", L"错误", MB_ICONERROR);
         return -1;
     }
 
-    // 设置渲染回调
+    // 4. 绑定回调 (在 Show 之前完成!)
     window.SetRenderCallback(Renderer::RenderCallback, &g_renderer);
+    window.SetUpdateCallback(Renderer::UpdateCallback, &g_renderer);
+    window.SetKeyCallback(Renderer::KeyCallback, &g_renderer);
+    window.SetMouseCallback(Renderer::MouseCallback, &g_renderer);
 
-    // ========== 4. 显示并运行 ==========
-    window.Show();
+    // 5. 启动定时器
+    window.StartTimer(30);
+
+    // 6. 显示窗口 (使用 nCmdShow)
+    window.Show(nCmdShow);
+
+    // 7. 触发首次绘制 (回调已就绪)
+    UpdateWindow(window.GetHandle());
+
+    // 8. 运行消息循环
     return window.Run();
 }

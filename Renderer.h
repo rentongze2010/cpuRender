@@ -1,14 +1,18 @@
 #pragma once
-#include <vector>
 #include <cstdint>
+#include <cmath>
 
-// RGBA 像素结构 (注意内存布局)
 struct Pixel
 {
-    uint8_t b;  // Windows BMP 格式是 BGRA
-    uint8_t g;
-    uint8_t r;
-    uint8_t a;
+    uint8_t b, g, r, a;
+};
+
+struct Ball
+{
+    float x, y;
+    float vx, vy;
+    float radius;
+    uint32_t color;
 };
 
 class Renderer
@@ -17,20 +21,29 @@ public:
     Renderer();
     ~Renderer();
 
-    // 设置像素数据 (RGBA 格式，每个像素 4 字节)
     void SetPixelData(const uint32_t* pixels, int width, int height);
 
-    // 获取像素缓冲区指针 (用于直接渲染)
-    void* GetPixelBuffer() { return m_pixelBuffer; }
-    int GetWidth() const { return m_width; }
-    int GetHeight() const { return m_height; }
-
-    // 渲染回调函数 (供 Window 调用)
+    // 核心回调
     static void RenderCallback(void* userData, int width, int height, void* pixelBuffer);
+    static void UpdateCallback(void* userData, float deltaTime);
+    static void KeyCallback(void* userData, int key, bool isPressed);
+    static void MouseCallback(void* userData, int x, int y, int button);
 
 private:
-    uint32_t* m_pixelData;      // 用户提供的 RGBA 数据
-    Pixel* m_pixelBuffer;       // 渲染用的 BGRA 缓冲区
+    void DrawBall(void* buffer, int width, int height);
+    void ClearBuffer(void* buffer, int width, int height);
+    void UpdateLogic(float deltaTime);
+
+    uint32_t* m_pixelData;
+    Pixel* m_pixelBuffer;
     int m_width;
     int m_height;
+
+    // 动画状态
+    Ball m_ball;
+    bool m_showBall;
+
+    // 鼠标交互
+    int m_mouseX, m_mouseY;
+    bool m_mousePressed;
 };
