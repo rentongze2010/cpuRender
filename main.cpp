@@ -6,7 +6,12 @@
 Window* g_pWindow = nullptr;
 Renderer g_renderer;
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+int WINAPI WinMain(
+    _In_ HINSTANCE hInstance,      // handle to current instance
+    _In_opt_ HINSTANCE hPrevInstance,  // handle to previous instance
+    _In_ LPSTR lpCmdLine,          // command line
+    _In_ int nCmdShow              // show state
+)
 {
     // 1. 准备初始像素数据
     const int WIDTH = 400;
