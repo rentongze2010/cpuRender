@@ -1,275 +1,265 @@
 #include "Window.h"
+#include <cstring>
 
-Window::Window()
-    : m_hWnd(NULL), m_width(0), m_height(0), m_isFullscreen(false),
-    m_renderCallback(nullptr), m_updateCallback(nullptr),
-    m_keyCallback(nullptr), m_mouseCallback(nullptr),
-    m_renderUserData(nullptr), m_updateUserData(nullptr),
-    m_keyUserData(nullptr), m_mouseUserData(nullptr)
-{
-    // 初始化按键状态
-    for (int i = 0; i < 256; i++) m_keys[i] = false;
+void clearScreen(std::vector<Pixel>& screen, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    Pixel clearColor = { b, g, r, a };
+    std::fill(screen.begin(), screen.end(), clearColor);
 }
 
-Window::~Window()
+Window::Window() :
+    hWnd(nullptr),
+    hdcMem(nullptr),
+    hBitmap(nullptr),
+    hOldBitmap(nullptr),
+    screenBits(nullptr),
+    screenWidth(0),
+    screenHeight(0),
+    fullscreenMode(false)
 {
-    StopTimer();
-    if (m_hWnd) DestroyWindow(m_hWnd);
 }
 
-bool Window::Create(const wchar_t* title, int width, int height)
-{
-    m_width = width;
-    m_height = height;
+Window::~Window() {
+    close();
+}
 
-    WNDCLASSEX wc = { 0 };
-    wc.cbSize = sizeof(WNDCLASSEX);
-    wc.lpfnWndProc = WndProcStatic;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH); // 默认黑色背景
-    wc.lpszClassName = L"CPURenderWindowClass";
-    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-    wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
+bool Window::create(int width, int height, const wchar_t* title) {
+    cleanup(); // 确保清理之前的状态
 
-    if (!RegisterClassEx(&wc)) return false;
+    screenWidth = width;
+    screenHeight = height;
 
-    // 计算窗口大小，使客户区正好为 width x height
-    RECT rect = { 0, 0, width, height };
-    AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0);
-    int winWidth = rect.right - rect.left;
-    int winHeight = rect.bottom - rect.top;
+    // 注册窗口类
+    const wchar_t CLASS_NAME[] = L"GameWindowClass";
 
-    m_hWnd = CreateWindowEx(
-        0, L"CPURenderWindowClass", title,
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        winWidth, winHeight,
-        NULL, NULL, GetModuleHandle(NULL), this
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(NULL);
+    wc.lpszClassName = CLASS_NAME;
+
+    RegisterClassW(&wc);
+
+    // 创建窗口
+    DWORD style = fullscreenMode ? WS_POPUP : WS_OVERLAPPEDWINDOW;
+
+    hWnd = CreateWindowExW(
+        0,
+        CLASS_NAME,
+        title,
+        style,
+        CW_USEDEFAULT, CW_USEDEFAULT, width, height,
+        NULL,
+        NULL,
+        GetModuleHandleW(NULL),
+        NULL
     );
 
-    if (!m_hWnd) return false;
+    if (hWnd == NULL) {
+        return false;
+    }
 
-    // 保存初始状态用于恢复全屏
-    m_windowedStyle = GetWindowLongPtr(m_hWnd, GWL_STYLE);
-    m_windowedExStyle = GetWindowLongPtr(m_hWnd, GWL_EXSTYLE);
-    GetWindowRect(m_hWnd, &m_windowedRect);
+    if (fullscreenMode) {
+        SetWindowPos(hWnd, HWND_TOP, 0, 0, width, height, SWP_SHOWWINDOW);
+    }
+    else {
+        ShowWindow(hWnd, SW_SHOWDEFAULT);
+        UpdateWindow(hWnd);
+    }
+
+    return initializeBuffer();
+}
+
+void Window::close() {
+    cleanup();
+
+    if (hWnd) {
+        DestroyWindow(hWnd);
+        hWnd = nullptr;
+    }
+}
+
+bool Window::initializeBuffer() {
+    if (!hWnd) return false;
+
+    cleanup(); // 确保清理之前的缓冲区
+
+    // 创建内存DC用于双缓冲
+    hdcMem = CreateCompatibleDC(GetDC(hWnd));
+    if (!hdcMem) {
+        return false;
+    }
+
+    // 创建与屏幕兼容的位图
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = screenWidth;
+    bmi.bmiHeader.biHeight = -screenHeight;  // 负值表示顶向下DIB
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* bits;
+    hBitmap = CreateDIBSection(hdcMem, &bmi, DIB_RGB_COLORS, &bits, NULL, 0x0);
+    if (!hBitmap) {
+        cleanup();
+        return false;
+    }
+
+    screenBits = static_cast<uint8_t*>(bits);
+    hOldBitmap = (HBITMAP)SelectObject(hdcMem, hBitmap);
 
     return true;
 }
 
-int Window::Run()
-{
-    MSG msg = { 0 };
-    while (GetMessage(&msg, NULL, 0, 0))
-    {
+void Window::cleanup() {
+    if (hdcMem) {
+        if (hOldBitmap) {
+            SelectObject(hdcMem, hOldBitmap);
+            hOldBitmap = nullptr;
+        }
+
+        if (hBitmap) {
+            DeleteObject(hBitmap);
+            hBitmap = nullptr;
+        }
+
+        DeleteDC(hdcMem);
+        hdcMem = nullptr;
+    }
+
+    screenBits = nullptr;
+}
+
+// 1. 刷新屏幕
+void Window::update(std::vector<Pixel>& screen) {
+    if (!hdcMem || !hBitmap || !hWnd || !screenBits) {
+        return;
+    }
+
+    // 将像素数据直接复制到DIBSection
+    size_t totalBytes = screenWidth * screenHeight * sizeof(Pixel);
+
+    // 确保screen有足够的数据
+    if (screen.size() * sizeof(Pixel) >= totalBytes) {
+        memcpy(screenBits, screen.data(), totalBytes);
+
+        // 将内存DC的内容复制到窗口DC
+        HDC hdc = GetDC(hWnd);
+        if (hdc) {
+            BitBlt(hdc, 0, 0, screenWidth, screenHeight, hdcMem, 0, 0, SRCCOPY);
+            ReleaseDC(hWnd, hdc);
+        }
+    }
+}
+
+// 2. 全屏与分辨率设置
+bool Window::setFullscreen(bool fullscreen) {
+    if (fullscreen == fullscreenMode) {
+        return true; // 已经处于所需状态
+    }
+
+    int currentWidth = screenWidth;
+    int currentHeight = screenHeight;
+
+    if (fullscreen) {
+        // 获取当前屏幕分辨率
+        int width = GetSystemMetrics(SM_CXSCREEN);
+        int height = GetSystemMetrics(SM_CYSCREEN);
+
+        // 设置全屏显示模式
+        DEVMODEW devMode = {};
+        devMode.dmSize = sizeof(DEVMODEW);
+        devMode.dmPelsWidth = width;
+        devMode.dmPelsHeight = height;
+        devMode.dmBitsPerPel = 32;
+        devMode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL;
+
+        LONG result = ChangeDisplaySettingsW(&devMode, CDS_FULLSCREEN);
+        if (result != DISP_CHANGE_SUCCESSFUL) {
+            return false;
+        }
+
+        // 创建全屏窗口
+        SetWindowLongW(hWnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        SetWindowPos(hWnd, HWND_TOP, 0, 0, width, height, SWP_SHOWWINDOW);
+
+        screenWidth = width;
+        screenHeight = height;
+    }
+    else {
+        // 恢复窗口模式
+        ChangeDisplaySettingsW(NULL, 0);
+
+        // 恢复窗口样式和位置
+        SetWindowLongW(hWnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+        SetWindowPos(hWnd, HWND_TOP, 100, 100, currentWidth, currentHeight, SWP_SHOWWINDOW);
+
+        screenWidth = currentWidth;
+        screenHeight = currentHeight;
+    }
+
+    fullscreenMode = fullscreen;
+
+    // 重新初始化位图以适应新分辨率
+    return initializeBuffer();
+}
+
+bool Window::setResolution(int width, int height) {
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
+
+    screenWidth = width;
+    screenHeight = height;
+
+    if (fullscreenMode) {
+        // 在全屏模式下更改分辨率
+        DEVMODEW devMode = {};
+        devMode.dmSize = sizeof(DEVMODEW);
+        devMode.dmPelsWidth = width;
+        devMode.dmPelsHeight = height;
+        devMode.dmBitsPerPel = 32;
+        devMode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL;
+
+        LONG result = ChangeDisplaySettingsW(&devMode, CDS_FULLSCREEN);
+        if (result != DISP_CHANGE_SUCCESSFUL) {
+            return false;
+        }
+
+        SetWindowPos(hWnd, HWND_TOP, 0, 0, width, height, SWP_SHOWWINDOW);
+    }
+    else {
+        // 在窗口模式下更改分辨率
+        SetWindowPos(hWnd, HWND_TOP, 100, 100, width, height, SWP_SHOWWINDOW);
+    }
+
+    return initializeBuffer();
+}
+
+void Window::getResolution(int& width, int& height) const {
+    width = screenWidth;
+    height = screenHeight;
+}
+
+bool Window::isFullscreen() const {
+    return fullscreenMode;
+}
+
+bool Window::processMessages() {
+    MSG msg = {};
+    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+        if (msg.message == WM_QUIT) {
+            return false;
+        }
         TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        DispatchMessageW(&msg);
     }
-    return (int)msg.wParam;
+    return true;
 }
 
-void Window::Show(int nCmdShow)
-{
-    if (m_hWnd)
-    {
-        ShowWindow(m_hWnd, nCmdShow);
-        // 不在这里调用 UpdateWindow，交给 main 控制时机
-    }
+HWND Window::getHandle() const {
+    return hWnd;
 }
 
-void Window::SetRenderCallback(RenderCallback callback, void* userData) {
-    m_renderCallback = callback; m_renderUserData = userData;
-}
-void Window::SetUpdateCallback(UpdateCallback callback, void* userData) {
-    m_updateCallback = callback; m_updateUserData = userData;
-}
-void Window::SetKeyCallback(KeyCallback callback, void* userData) {
-    m_keyCallback = callback; m_keyUserData = userData;
-}
-void Window::SetMouseCallback(MouseCallback callback, void* userData) {
-    m_mouseCallback = callback; m_mouseUserData = userData;
-}
-
-void Window::StartTimer(int intervalMs)
-{
-    if (m_hWnd) SetTimer(m_hWnd, 1, intervalMs, NULL);
-}
-
-void Window::StopTimer()
-{
-    if (m_hWnd) KillTimer(m_hWnd, 1);
-}
-
-bool Window::IsKeyDown(int keyCode) const
-{
-    return (keyCode >= 0 && keyCode < 256) ? m_keys[keyCode] : false;
-}
-
-void Window::ToggleFullscreen()
-{
-    if (!m_hWnd) return;
-
-    m_isFullscreen = !m_isFullscreen;
-
-    if (m_isFullscreen)
-    {
-        // 保存当前状态
-        GetWindowRect(m_hWnd, &m_windowedRect);
-        m_windowedStyle = GetWindowLongPtr(m_hWnd, GWL_STYLE);
-        m_windowedExStyle = GetWindowLongPtr(m_hWnd, GWL_EXSTYLE);
-
-        // 设置为无边框弹出窗口
-        SetWindowLongPtr(m_hWnd, GWL_STYLE, WS_POPUP);
-        SetWindowLongPtr(m_hWnd, GWL_EXSTYLE, WS_EX_TOPMOST);
-
-        // 获取显示器工作区 (不覆盖任务栏)
-        HMONITOR hMonitor = MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST);
-        MONITORINFO monitorInfo = { sizeof(monitorInfo) };
-        GetMonitorInfo(hMonitor, &monitorInfo);
-
-        SetWindowPos(m_hWnd, HWND_TOPMOST,
-            monitorInfo.rcWork.left, monitorInfo.rcWork.top,
-            monitorInfo.rcWork.right - monitorInfo.rcWork.left,
-            monitorInfo.rcWork.bottom - monitorInfo.rcWork.top,
-            SWP_FRAMECHANGED);
-    }
-    else
-    {
-        // 恢复窗口状态
-        SetWindowLongPtr(m_hWnd, GWL_STYLE, m_windowedStyle);
-        SetWindowLongPtr(m_hWnd, GWL_EXSTYLE, m_windowedExStyle);
-
-        SetWindowPos(m_hWnd, HWND_NOTOPMOST,
-            m_windowedRect.left, m_windowedRect.top,
-            m_windowedRect.right - m_windowedRect.left,
-            m_windowedRect.bottom - m_windowedRect.top,
-            SWP_FRAMECHANGED);
-    }
-    ShowWindow(m_hWnd, SW_SHOW);
-    UpdateWindowSize(); // 更新内部记录的尺寸
-}
-
-void Window::UpdateWindowSize()
-{
-    RECT rc;
-    GetClientRect(m_hWnd, &rc);
-    m_width = rc.right - rc.left;
-    m_height = rc.bottom - rc.top;
-}
-
-LRESULT CALLBACK Window::WndProcStatic(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    Window* pWindow = nullptr;
-    if (msg == WM_NCCREATE)
-    {
-        CREATESTRUCT* pCreate = (CREATESTRUCT*)lParam;
-        pWindow = (Window*)pCreate->lpCreateParams;
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)pWindow);
-        pWindow->m_hWnd = hwnd;
-    }
-    else
-    {
-        pWindow = (Window*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
-    }
-
-    if (pWindow) return pWindow->WndProc(hwnd, msg, wParam, lParam);
-    return DefWindowProc(hwnd, msg, wParam, lParam);
-}
-
-LRESULT Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    switch (msg)
-    {
-    case WM_TIMER:
-        if (wParam == 1 && m_updateCallback)
-        {
-            // 调用 Update 逻辑 (deltaTime 设为固定值 0.016s)
-            m_updateCallback(m_updateUserData, 0.016f);
-            // 更新后请求重绘
-            InvalidateRect(hwnd, NULL, FALSE);
-        }
-        return 0;
-
-    case WM_PAINT:
-    {
-        PAINTSTRUCT ps;
-        HDC hdcScreen = BeginPaint(hwnd, &ps);
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        int width = rc.right - rc.left;
-        int height = rc.bottom - rc.top;
-        m_width = width; m_height = height; // 同步尺寸
-
-        if (width > 0 && height > 0 && m_renderCallback)
-        {
-            HDC hdcMem = CreateCompatibleDC(hdcScreen);
-            BITMAPINFO bmi = { 0 };
-            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-            bmi.bmiHeader.biWidth = width;
-            bmi.bmiHeader.biHeight = -height;
-            bmi.bmiHeader.biPlanes = 1;
-            bmi.bmiHeader.biBitCount = 32;
-            bmi.bmiHeader.biCompression = BI_RGB;
-
-            void* pixels = nullptr;
-            HBITMAP hBitmap = CreateDIBSection(hdcMem, &bmi, DIB_RGB_COLORS, &pixels, NULL, 0);
-
-            if (hBitmap && pixels)
-            {
-                HBITMAP hOld = (HBITMAP)SelectObject(hdcMem, hBitmap);
-                // 执行渲染
-                m_renderCallback(m_renderUserData, width, height, pixels);
-                BitBlt(hdcScreen, 0, 0, width, height, hdcMem, 0, 0, SRCCOPY);
-                SelectObject(hdcMem, hOld);
-                DeleteObject(hBitmap);
-            }
-            DeleteDC(hdcMem);
-        }
-        EndPaint(hwnd, &ps);
-    }
-    return 0;
-
-    case WM_KEYDOWN:
-    {
-        int key = (int)wParam;
-        m_keys[key] = true;
-        // 全屏快捷键 F11 或 F
-        if (key == VK_F11 || key == 'F') ToggleFullscreen();
-        if (m_keyCallback) m_keyCallback(m_keyUserData, key, true);
-    }
-    return 0;
-
-    case WM_KEYUP:
-    {
-        int key = (int)wParam;
-        m_keys[key] = false;
-        if (m_keyCallback) m_keyCallback(m_keyUserData, key, false);
-    }
-    return 0;
-
-    case WM_MOUSEMOVE:
-        if (m_mouseCallback)
-        {
-            int x = LOWORD(lParam);
-            int y = HIWORD(lParam);
-            m_mouseCallback(m_mouseUserData, x, y, 0);
-        }
-        return 0;
-
-    case WM_LBUTTONDOWN:
-        if (m_mouseCallback)
-        {
-            int x = LOWORD(lParam);
-            int y = HIWORD(lParam);
-            m_mouseCallback(m_mouseUserData, x, y, 1); // 1 代表左键按下
-        }
-        return 0;
-
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        return 0;
-    }
-
-    return DefWindowProc(hwnd, msg, wParam, lParam);
+size_t Window::getBufferSize() const {
+    return screenWidth * screenHeight;
 }

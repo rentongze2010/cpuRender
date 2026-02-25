@@ -17,7 +17,7 @@ public:
     Renderer();
     ~Renderer();
 
-    // 设置初始像素数据 (RGBA 格式)
+    // 设置初始像素数据 (ARGB 格式)
     void SetPixelData(const uint32_t* pixels, int width, int height);
 
     // 核心回调 (供 Window 类调用)

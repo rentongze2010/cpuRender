@@ -1,75 +1,52 @@
 #pragma once
+#include <vector>
 #include <windows.h>
-#include <functional>
 
-class Window
+struct Pixel
 {
+    uint8_t b;  // Blue
+    uint8_t g;  // Green
+    uint8_t r;  // Red
+    uint8_t a;  // Alpha
+};
+
+// 清空屏幕函数
+void clearScreen(std::vector<Pixel>& screen, uint8_t r = 0, uint8_t g = 0, uint8_t b = 0, uint8_t a = 255);
+
+class Window {
 public:
     Window();
     ~Window();
 
-    // 创建窗口
-    bool Create(const wchar_t* title, int width, int height);
+    bool create(int width, int height, const wchar_t* title = L"Desktop Application");
+    void close();
 
-    // 消息循环
-    int Run();
+    // 1. 刷新屏幕
+    void update(std::vector<Pixel>& screen);
 
-    void Show(int nCmdShow = SW_SHOW);
+    // 2. 全屏与分辨率设置
+    bool setFullscreen(bool fullscreen);
+    bool setResolution(int width, int height);
+    void getResolution(int& width, int& height) const;
+    bool isFullscreen() const;
 
-    // --- 动画与渲染 ---
-    using RenderCallback = void (*)(void* userData, int width, int height, void* pixelBuffer);
-    using UpdateCallback = void (*)(void* userData, float deltaTime);
+    // 消息处理
+    bool processMessages();
+    HWND getHandle() const;
 
-    void SetRenderCallback(RenderCallback callback, void* userData);
-    void SetUpdateCallback(UpdateCallback callback, void* userData);
-    void StartTimer(int intervalMs = 16); // 默认约 60FPS
-    void StopTimer();
-
-    // --- 输入系统 ---
-    using KeyCallback = void (*)(void* userData, int key, bool isPressed);
-    using MouseCallback = void (*)(void* userData, int x, int y, int button);
-
-    void SetKeyCallback(KeyCallback callback, void* userData);
-    void SetMouseCallback(MouseCallback callback, void* userData);
-
-    // 查询按键状态 (用于连续移动)
-    bool IsKeyDown(int keyCode) const;
-
-    // --- 全屏控制 ---
-    void ToggleFullscreen();
-    bool IsFullscreen() const { return m_isFullscreen; }
-
-    // 获取尺寸
-    int GetWidth() const { return m_width; }
-    int GetHeight() const { return m_height; }
-    HWND GetHandle() const { return m_hWnd; }
+    // 获取屏幕缓冲区大小
+    size_t getBufferSize() const;
 
 private:
-    static LRESULT CALLBACK WndProcStatic(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-    LRESULT WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    HWND hWnd;
+    HDC hdcMem;
+    HBITMAP hBitmap;
+    HBITMAP hOldBitmap;
+    uint8_t* screenBits;
+    int screenWidth;
+    int screenHeight;
+    bool fullscreenMode;
 
-    void UpdateWindowSize();
-
-    HWND m_hWnd;
-    int m_width;
-    int m_height;
-    bool m_isFullscreen;
-
-    // 保存全屏前的窗口状态
-    RECT m_windowedRect;
-    LONG_PTR m_windowedStyle;
-    LONG_PTR m_windowedExStyle;
-
-    // 回调与数据
-    RenderCallback m_renderCallback;
-    void* m_renderUserData;
-    UpdateCallback m_updateCallback;
-    void* m_updateUserData;
-    KeyCallback m_keyCallback;
-    void* m_keyUserData;
-    MouseCallback m_mouseCallback;
-    void* m_mouseUserData;
-
-    // 按键状态表
-    bool m_keys[256];
+    bool initializeBuffer();
+    void cleanup();
 };
