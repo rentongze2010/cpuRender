@@ -2,7 +2,7 @@
 #include <math.h>
 
 Matrix3::Matrix3() {
-	memset(d, 0, sizeof(d)*9);
+	memset(d, 0, sizeof(d));
 	return;
 }
 Matrix3 Matrix3::operator*(const Matrix3& m3){
@@ -14,10 +14,10 @@ Matrix3 Matrix3::operator*(const Matrix3& m3){
 			}
 		}
 	}
-	return ;
+	return ans;
 }
 Matrix4::Matrix4() {
-	memset(d, 0, sizeof(d)*16);
+	memset(d, 0, sizeof(d));
 	return;
 }
 Matrix4 Matrix4::operator*(const Matrix4& m4){
@@ -29,10 +29,10 @@ Matrix4 Matrix4::operator*(const Matrix4& m4){
 			}
 		}
 	}
-	return ;
+	return ans;
 }
 Vector2::Vector2() {
-	memset(d, 0, sizeof(d) * 2);
+	memset(d, 0, sizeof(d));
 	return;
 }
 Vector2::Vector2(float x, float y) {
@@ -64,7 +64,7 @@ Vector2 Vector2::Proj(const Vector2& v) {
 	return (v.normalize()) * this->dot(v.normalize());
 }
 Vector3::Vector3() {
-	memset(d, 0, sizeof(d) * 3);
+	memset(d, 0, sizeof(d));
 	return;
 }
 Vector3::Vector3(float x, float y, float z) {
@@ -101,7 +101,7 @@ Vector3 Vector3::Proj(const Vector3& v) {
 	return (v.normalize()) * this->dot(v.normalize());
 }
 Vector4::Vector4() {
-	memset(d, 0, sizeof(d) * 4);
+	memset(d, 0, sizeof(d));
 	return;
 }
 Vector4 Vector4::operator*(const Matrix4& m4) {
