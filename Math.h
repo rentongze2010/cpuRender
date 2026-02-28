@@ -1,5 +1,7 @@
 #pragma once
 #include <vector>
+#include <math.h>
+#include <immintrin.h>
 
 struct Matrix3;
 struct Matrix4;
@@ -10,14 +12,16 @@ struct Vector4;
 struct Matrix3 {
 	float d[3][3];
 	Matrix3();
-	Matrix3 operator*(const Matrix3& m3);
+	Matrix3 operator*(const Matrix3& m3) const;
+	Vector3 operator*(const Vector3& v) const;
 	bool operator==(const Matrix3& m3) const;
 };
-struct Matrix4 {
+struct alignas(16) Matrix4 {
 	float d[4][4];
 	Matrix4();
 	Matrix4(const Vector4& v);	//Quaternions
-	Matrix4 operator*(const Matrix4& m4);
+	Matrix4 operator*(const Matrix4& m4) const;
+	Vector4 operator*(const Vector4& v) const;
 	bool operator==(const Matrix4& m4) const;
 };
 struct Vector2 {
@@ -38,7 +42,6 @@ struct Vector3 {
 	Vector3();
 	Vector3(float x, float y, float z);
 	Vector3 operator+(const Vector3& v);
-	Vector3 operator*(const Matrix3& m3);
 	Vector3 operator*(const float& f);
 	bool operator==(const Vector3& v) const;
 	float dot(const Vector3& v);
@@ -50,8 +53,7 @@ struct Vector3 {
 struct Vector4 {
 	float d[4];
 	Vector4();
-	Vector4(float w, float x, float y, float z);
-	Vector4 operator*(const Matrix4& m4);
+	Vector4(float x, float y, float z, float w);
 	bool operator==(const Vector4& v) const;
 	Vector4 normalize() const;
 };
